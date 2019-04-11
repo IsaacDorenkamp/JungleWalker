@@ -100,8 +100,10 @@ class SimPanel(wx.Panel):
         ek = erv.keys()
         ek.sort(key=str.lower)
 
+        self.__tree_ext = {}
         for i in ek:
-            self.ComponentTree.AppendItem(self.ExternalTree, "%s: %d%%" % (self.__model['speciesMap'][i]['name'], erv[i]))
+            self.__tree_ext[i] = (self.ComponentTree.AppendItem(self.ExternalTree, "%s: %d%%" % (self.__model['speciesMap'][i]['name'], erv[i])),
+                                  self.__mode['speciesMap'][i]['name'])
 
         self.InternalTree = self.ComponentTree.AppendItem(self.Root, "Internal Components")
         self.InternalTreeItems = {}
@@ -229,7 +231,8 @@ class SimPanel(wx.Panel):
             self.Running = False
         while not self.Finished:
             time.sleep(.005)
-        self.GetParent().RemovePage(self.GetParent().FindPage(self))
+        p = self.GetParent()
+        p.RemovePage(p.FindPage(self))
         self.__jw.on_sim_over(self)
         self.Destroy()
 
@@ -500,6 +503,9 @@ class SimPanel(wx.Panel):
         for i in xrange(0, self.Viewing.GetItemCount()):
             with self.__analysis_lock:
                 self.Viewing.SetItem(i, 1, '%.0f%%' % (self.__analysis[self.__lists[self.__displaying][4][i].speciesId]*100))
+        for i in self.__tree_ext.keys():
+            with self.__analysis_lock:
+                self.ComponentTree.SetItemText( self.__tree_ext[i][0], '%s: %.1f%%' % (self.__tree_ext[i][1], self.__analysis[int(i)]) )
 
     cycle_n = 0
     def __thread_func(self):
@@ -555,7 +561,7 @@ class SimPanel(wx.Panel):
                         if self.ActMonitor.frame == -1:
                             self.__sim_steps.SetLabel("Frames %d-%d" % (flval*100, (flval+1)*100))
                             self.__tb.Layout()
-                    state = self.__simulation.GetState()
+                    state = self.__simulation.GetFullState()
                 for i in state.keys():
                     i = int(i)
                     with self.__analysis_lock:

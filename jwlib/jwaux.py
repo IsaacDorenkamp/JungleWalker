@@ -646,7 +646,7 @@ class TransparentStatus(wx.Panel):
         
     def SetText(self, txt):
         self.__text = txt
-        self.Refresh()
+        wx.CallAfter(self.Refresh)
 
     def GetText(self):
         return self.__text

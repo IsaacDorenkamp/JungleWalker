@@ -2,6 +2,7 @@
 
 import math
 import modellib
+import random
 import threading
 import time
 
@@ -18,6 +19,10 @@ StatusChangedEvent, EVT_STATUS_CHANGED = wx.lib.newevent.NewEvent()
 # Analysis module uses the FastSimulation, an alternative to simulation
 # which directly takes in a dictionary associating protein names to tuples
 # containing truth tables and a list of regulators
+
+def gen_rand_from_range(ers, precision=1):
+    return ((math.floor( (random.random() * (ers[1] - ers[0]) + ers[0]) * (10 ** precision)) / (10**precision)))
+
 def runsim(argt):
     try:
         er = argt[0]
@@ -32,7 +37,8 @@ def runsim(argt):
         ext_env = {}
         for j in er.keys():
             ers = er[j]
-            ext_env[j] = ers[0] + (ers[1] - ers[0])*(float(i) / (points-1))
+            # ext_env[j] = ers[0] + (ers[1] - ers[0])*(float(i) / (points-1)) # old way
+            ext_env[j] = gen_rand_from_range(ers) # new way # TODO: put inputs into output object so that input information can be tracked
         s = modellib.FastSimulation(ext_env, ervk, env, envk)
         avgs = {}
         for j in xrange(1, dc1+1):
@@ -45,7 +51,9 @@ def runsim(argt):
                 for k in envk:
                     diff = j - dc0
                     avgs[k] = (diff*avgs[k] + float(state[k])) / (diff+1)
-        q.put((avgs, i))
+        for i in avgs.keys():
+            avgs[i] = avgs[i]*100 # convert to percentage
+        q.put((avgs, ext_env))
     except Exception as e:
         q.put(Exception(traceback.format_exc()))
 
@@ -85,11 +93,27 @@ class AnalysisThread(threading.Thread):
             data.append(g)
             sce = StatusChangedEvent(percent = float(i+1) / self.__points, complete=False)
             wx.PostEvent(self.__statusbar, sce)
-        data.sort(key=lambda s:s[1])
-        ndata = []
+        #data.sort(key=lambda s:s[1]) # OLD CODE
+        #ndata = []
+        #for i in data:
+        #    ndata.append(i[0])
+        output_data = {}
+        input_data = {}
         for i in data:
-            ndata.append(i[0])
-        self.__data_points = ndata
+            odata = i[0]
+            for j in odata.keys():
+                if j in output_data.keys():
+                    output_data[j].append(odata[j])
+                else:
+                    output_data[j] = [odata[j]]
+            idata = i[1]
+            for j in idata.keys():
+                if j in input_data.keys():
+                    input_data[j].append(idata[j])
+                else:
+                    input_data[j] = [idata[j]]
+                    
+        self.__data_points = (output_data, input_data)
         total = float(time.time()*1000) - t
         sce = StatusChangedEvent(percent = 1.0, complete=True, time=total)
         wx.PostEvent(self.__statusbar, sce)

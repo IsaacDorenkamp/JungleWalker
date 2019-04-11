@@ -1,6 +1,10 @@
 # wx extension library for JungleWalker - dialogs
 
+import datetime
+from dateutil.tz import tzlocal
 import math
+import pytz
+import requests.exceptions
 import threading
 import time
 import wx
@@ -108,6 +112,9 @@ class AuthDialog(wx.Dialog):
         return self.pfld.GetValue()
         
 class ModelSelectionDialog(wx.Dialog):
+    MODEL_DATE_FORMAT = '%a, %d %b %Y %H:%M:%S %Z'
+    MODEL_DATE_DISPLAY_FORMAT = '%m/%d/%Y'
+    
     def __init__(self, session, *args, **kwargs):
         wx.Dialog.__init__(self, *args, **kwargs)
         
@@ -121,7 +128,7 @@ class ModelSelectionDialog(wx.Dialog):
         self.__config_ui()
         self.Centre()
 
-        self.selection = (-1, '', 0)
+        self.selection = (-1, '', 0, 0, None)
         self.items = {}
 
         self.Bind(wx.EVT_CLOSE, self.__onclose)
@@ -205,7 +212,7 @@ class ModelSelectionDialog(wx.Dialog):
         self.__display[name].SetSizer(gs)
         self.__tabpane.AddPage(self.__display[name], label)
         
-    def __add_model(self, n, v, c, i, a, cd, mid, mh, mn, category='education'):
+    def __add_model(self, n, v, c, i, a, cd, upd_str, upd, mid, mh, mn, category='education'):
         if category == '':
             category = 'education'
         if self.__display.get(category) == None:
@@ -221,12 +228,13 @@ class ModelSelectionDialog(wx.Dialog):
         else:
             au = b("\nAuthor: %s" % a, MODEL_DISPLAY_WIDTH, dc)
         cds = b("Created: %s" % cd, MODEL_DISPLAY_WIDTH, dc)
-        st = wx.StaticText(sp, label="%s\n%s\n%s%s\n%s" % (ns, cs, ins, au, cds))
+        _up = b("Updated: %s" % upd_str, MODEL_DISPLAY_WIDTH, dc)
+        st = wx.StaticText(sp, label="%s\n%s\n%s%s\n%s\n%s" % (ns, cs, ins, au, cds, _up))
         boxs = wx.BoxSizer(wx.VERTICAL)
         boxs.Add(st, 1, wx.ALL | wx.EXPAND, border=10)
         self.__models[category] += 1
         sp.SetSizer(boxs)
-        self.items[st] = (mid, mh, int(v), mn)
+        self.items[st] = (mid, mh, int(v), mn, upd)
         st.Bind(wx.EVT_LEFT_DOWN , self.__set_selection)
         st.SetCursor(wx.Cursor(wx.CURSOR_HAND))
         self.__display[category].GetSizer().Add(sp, 1, wx.ALL | wx.EXPAND, border = 5)
@@ -236,7 +244,12 @@ class ModelSelectionDialog(wx.Dialog):
             self.__display[category].GetSizer().AddGrowableCol(1)
 
     def __load_models(self):
-        mods = self.__session.GetAvailableModels()
+        try:
+            mods = self.__session.GetAvailableModels()
+        except requests.exceptions.ConnectionError:
+            wx.CallAfter(self.Destroy)
+            wx.CallAfter( wx.MessageBox, 'Could not connect to the internet. No models could be fetched.', 'Network Error', wx.ICON_ERROR | wx.OK )
+            return
         if isinstance(self.__session, ccapi.AuthSession):
             wx.CallAfter(self.__create_category, 'personal', 'My Models')
             wx.CallAfter(self.__create_category, 'shared', 'Shared with Me')
@@ -247,15 +260,27 @@ class ModelSelectionDialog(wx.Dialog):
             components = m['components']
             interactions = m['interactions']
             author = m['author']
-            creationDate = m['creationDate']
+            
+            creationDate = pytz.utc.localize( datetime.datetime.strptime( m['creationDate'], self.MODEL_DATE_FORMAT ) )
+            creationDate = creationDate.astimezone( tzlocal() ).strftime(self.MODEL_DATE_DISPLAY_FORMAT)
+
+            logicUpdated = datetime.datetime.strptime(m['biologicUpdateDate'], self.MODEL_DATE_FORMAT)
+            kbUpdated    = datetime.datetime.strptime(m['knowledgeBaseUpdateDate'], self.MODEL_DATE_FORMAT)
+            updatedDate = pytz.utc.localize(max(logicUpdated, kbUpdated))
+            updatedDate = updatedDate.astimezone( tzlocal() )
+            uds = updatedDate.strftime(self.MODEL_DATE_DISPLAY_FORMAT)
+            
             if m['published']:
                 # Add to list of public models
-                wx.CallAfter( self.__add_model, name, version, components, interactions, author, creationDate, m['id'], i['hash'], m['name'], m.get('type', '') )
+                wx.CallAfter( self.__add_model, name, version, components, interactions, author, creationDate, uds, updatedDate, m['id'], i['hash'], m['name'],
+                              m.get('type', '') )
             else:
                 if i['modelPermissions']['edit'] and not all(i['modelPermissions'].values()):
-                    wx.CallAfter( self.__add_model, name, version, components, interactions, author, creationDate, m['id'], i['hash'], m['name'], 'shared' )
+                    wx.CallAfter( self.__add_model, name, version, components, interactions, author, creationDate, uds, updatedDate, m['id'], i['hash'], m['name'],
+                                  'shared' )
                 elif all(i['modelPermissions'].values()):
-                    wx.CallAfter( self.__add_model, name, version, components, interactions, author, creationDate, m['id'], i['hash'], m['name'], 'personal' )
+                    wx.CallAfter( self.__add_model, name, version, components, interactions, author, creationDate, uds, updatedDate, m['id'], i['hash'], m['name'],
+                                  'personal' )
         wx.CallAfter(self.SetTitle, 'Select a Model')
         wx.CallAfter(self.__adjust_size)
 

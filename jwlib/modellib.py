@@ -426,11 +426,12 @@ class CCNode:
             scres.append((ss % (" " + srelation + " ").join(["regs[%d]" % self.__reglist.index(j) for j in i[4]])))
         return "(" + (" " + relation + " ").join(scres) + ")"
 
-    def __gencondbool(self, specid, relation):
-        cs = self.__conditions.get(specid)
+    def __gencondbool(self, regId, specId, relation, isDom = False):
+        cs = self.__conditions.get(regId)
         if cs == None:
             return None
         cres = []
+        rid = self.__reglist.index(specId)
         for i in cs:
             ss = i[1] + "(%s)"
             srelation = i[3]
@@ -445,9 +446,9 @@ class CCNode:
                 gscb = ""
             else:
                 gscb = " and " + gscb
-            rid = self.__reglist.index(specid)
             cres.append((ss % (" " + srelation + " ").join(["regs[%d]" % self.__reglist.index(j) for j in i[5]]) + gscb) + " ")
-        return "(" + ("regs[%d] and " % rid) + (" " + relation + " ").join(cres) + ")"
+        prefix = "regs[%d] and " % rid if isDom else ""
+        return "(" + prefix + (" " + relation + " ").join(cres) + ")"
 
     def GenerateBooleanExpression(self, specmap, debug=False):
         exps = []
@@ -468,7 +469,7 @@ class CCNode:
                                 found = True
                         if not found:
                             raise RuntimeError("Internal Error - could not find a dominance regulator. This error should never occur.")
-                        gcb = self.__gencondbool(specId, condRel)
+                        gcb = self.__gencondbool(j, specId, condRel, True)
                         if gcb != None:
                             doms.append(gcb)
                         else:
@@ -477,7 +478,7 @@ class CCNode:
                         exp += " and not %s" % dom
                 else:
                     exp = "regs[%d]" % self.__reglist.index(i[3])
-                gcbe = self.__gencondbool( i[3], i[1] )
+                gcbe = self.__gencondbool( i[2], i[3], i[1] ) # this should work
                 if gcbe == None:
                     gcbe = ""
                 else:
@@ -611,6 +612,7 @@ class Simulation:
     def GetEnvironment(self):
         return self.__pe.copy()
 
+    # DEPRECATED
     def ModifyNode(self, prot_name, in_bitstring, newval):
         if self.__pe[prot_name].truth_table != None:
             self.__pe[prot_name].truth_table[in_bitstring] = newval
@@ -675,6 +677,7 @@ class FastSimulation:
         self.__steps = 0
         
         self.__state = {}
+        self.__ext_reg = {}
         for i in self.__pek:
             k = '0' * (len(self.__pe[i][1]))
             if k == '':
@@ -699,11 +702,11 @@ class FastSimulation:
             raise ValueError('Model Incorrectly Setup.')
 
     def RunStep(self):
-        ext_reg = {}
+        self.__ext_reg = {}
         for i in self.__ervk:
-            ext_reg[int(i)] = PercentChance(self.__erv[i])
+            self.__ext_reg[int(i)] = PercentChance(self.__erv[i])
         nstate = self.__state.copy()
-        nstate.update(ext_reg)
+        nstate.update(self.__ext_reg)
         for _prot in self.__pek:
             prot = self.__pe[_prot]
             if not prot[2] in self.__mutk:
@@ -716,6 +719,11 @@ class FastSimulation:
     def GetState(self):
         """GetState() - Returns a copy of the state dictionary"""
         return self.__state.copy()
+    def GetFullState(self):
+        """GetFullState() - Returns a copy of the state dictionary, including external components"""
+        s = self.GetState()
+        s.update( self.__ext_reg )
+        return s   
     def GetSteps(self):
         return self.__steps
     def GetValue(self, node):

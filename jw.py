@@ -1,7 +1,8 @@
-# Jungle Walk Environment
-# This environment stores information about
-# all of the proteins, including the ways
-# in which they interact.
+# Jungle Walker
+# A software to load CellCollective models
+# for purposes of running simulations and
+# performing analysis, as well as exploring
+# the logic of individual nodes.
 
 import copy
 import glob
@@ -45,16 +46,17 @@ WORDWRAP_TOLERANCE = 5
 def BreakWordWrap(word, width, dc):
     if word == '':
         return ''
-    if dc.GetTextExtent(word[0])[0] > width - WORDWRAP_TOLERANCE:
-        return word
+    pieces = word.split(' ')
+    if dc.GetTextExtent(pieces[0])[0] > width - WORDWRAP_TOLERANCE:
+        return '\n' + word
     out = ""
-    for i in word:
+    for i in pieces:
         lines = out.split('\n')
         last_line = lines[len(lines)-1]
         if dc.GetTextExtent(last_line + i)[0] > width - WORDWRAP_TOLERANCE:
-            out += "\n" + i
+            out += "\n" + i + " "
         else:
-            out += i
+            out += i + " "
     return out
 
 class JungleWalker(wx.Frame):
@@ -65,7 +67,7 @@ class JungleWalker(wx.Frame):
 
         self.locale = wx.Locale(wx.LANGUAGE_ENGLISH) # Prevents breakage by some controls
 
-        self.SetMinSize((500, 400))
+        self.SetMinSize((750, 625))
         
         self.extenv = []
         self.env = {}
@@ -96,6 +98,8 @@ class JungleWalker(wx.Frame):
 
         self.__config_ui()
 
+        self.__ui_init = False
+
     def SetSimulator(self, sim):
         self.Simulator = sim
 
@@ -112,6 +116,23 @@ class JungleWalker(wx.Frame):
     
     def __relayout(self, evt=None):
         self.lbox.SetMaxSize((math.floor(self.GetSize()[0] / 4), self.GetSize()[1]))
+
+        if self.__ui_init:
+            if self.SimulationPanel.GetSize()[0] == 0:
+                exs = self.ExternalActivity.GetTargetWindow().GetVirtualSize()[0] + 30
+            else:
+                exs = min(self.ExternalActivity.GetTargetWindow().GetVirtualSize()[0] + 30, self.SimulationPanel.GetSize()[0] / 2)
+
+            if self.AnalysisPanel.GetSize()[0] == 0:
+                aexs = self.AnalysisExternalActivity.GetTargetWindow().GetVirtualSize()[0] + 20
+            else:
+                aexs = min(self.AnalysisExternalActivity.GetTargetWindow().GetVirtualSize()[0] + 20, self.AnalysisPanel.GetSize()[0] / 2)
+
+            self.ExternalActivity.SetMinSize((exs, self.SimulationPanel.GetSize()[1]))
+            self.AnalysisExternalActivity.SetMinSize((aexs, self.AnalysisPanel.GetSize()[1]))
+        else:
+            if not self.IsMaximized():
+                self.__ui_init = True
 
         self.viewboxer.Layout()
         self.boxer.Layout()
@@ -187,7 +208,7 @@ class JungleWalker(wx.Frame):
         self.Bind(wx.EVT_SIZE, self.OnResize)
         self.Bind(wx.EVT_IDLE, self.OnFinalizeResize)
 
-        self.tb = wx.Panel(self)
+        self.tb = wx.Panel(self, style=wx.SIMPLE_BORDER)
         self.bmp = {}
         self.bmp['login'] = wx.Bitmap('./img/login.bmp')
         self.bmp['logout'] = wx.Bitmap('./img/logout.bmp')
@@ -384,7 +405,7 @@ class JungleWalker(wx.Frame):
 
         speed_label = wx.StaticText(self.SimulatorConfig, label="Simulation Speed:", style=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         self.SimulationLength = wx.SpinCtrl(self.SimulatorConfig, wx.ID_ANY, value="50", min=50, max=250, style=wx.ALIGN_CENTER)
-        steps_label = wx.StaticText(self.SimulatorConfig, label="milliseconds/step (minimum)")
+        steps_label = wx.StaticText(self.SimulatorConfig, label="ms/step")
 
         mut_label = wx.StaticText(self.SimulatorConfig, label="Mutations:", style=wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL)
         mut_button = wx.Button(self.SimulatorConfig, label="Configure")
@@ -397,11 +418,11 @@ class JungleWalker(wx.Frame):
         self.SimConfigGridder = wx.GridBagSizer(10, 10)
 
         self.SimConfigGridder.Add(speed_label, pos=(1, 1), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_RIGHT, border=5)
-        self.SimConfigGridder.Add(self.SimulationLength, pos=(1,2), flag=wx.ALL | wx.EXPAND, border=5)
-        self.SimConfigGridder.Add(steps_label, pos=(1,3), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=5)
+        self.SimConfigGridder.Add(self.SimulationLength, pos=(1,2), span=(1,2), flag=wx.ALL | wx.EXPAND, border=5)
+        self.SimConfigGridder.Add(steps_label, pos=(1,4), flag=wx.ALL | wx.ALIGN_CENTER_VERTICAL | wx.ALIGN_LEFT, border=5)
 
         self.SimConfigGridder.Add(mut_label, pos=(2,1), flag=wx.ALL | wx.ALIGN_RIGHT | wx.ALIGN_CENTER_VERTICAL, border=5)
-        self.SimConfigGridder.Add(mut_button, pos=(2,2), flag=wx.ALL | wx.EXPAND, border=5)
+        self.SimConfigGridder.Add(mut_button, pos=(2,2), span=(1,2), flag=wx.ALL | wx.EXPAND, border=5)
 
         self.SimConfigGridder.Add(self.SimulationGoButton, pos=(3,2), flag=wx.ALL | wx.EXPAND, border=5)
         self.SimConfigGridder.Add(dummy, pos=(0,4))
@@ -771,7 +792,7 @@ class JungleWalker(wx.Frame):
                 sim_win = self.rbox.GetPage(i)
                 sim_win.kill_sim()
                 self.rbox.DeletePage(i)
-            if self.rbox.GetPageText(i) == "Post-Simulation Analysis":
+            if self.rbox.GetPageText(i) == "Post-Analysis Processing":
                 self.rbox.DeletePage(i)
                 
 
@@ -825,7 +846,8 @@ class JungleWalker(wx.Frame):
             gr = self.AnalysisThread.GetRegulators()
 
             post_an = lib.PostAnalysisPanel(self.rbox, gr, self.AnalysisThread.GetDataPoints(), self.__model)
-            self.rbox.AddPage( post_an, "Post-Simulation Analysis" )
+            self.rbox.AddPage( post_an, "Post-Analysis Processing" )
+            self.rbox.SetSelection( self.rbox.FindPage(post_an) )
             
             self.RunningAnalysis = False
             
@@ -1046,7 +1068,7 @@ class JungleWalker(wx.Frame):
     def LoadModelById(self, mid, name='Default Model'):
         self.__set_load_msg("Loading Model...")
 
-        m = self.__session.GetModel(mid[0], mid[1], mid[2])
+        m = self.__session.GetModel(mid[0], mid[1], mid[4], mid[2])
 
         self.appview.Show(False)
         self.waitview.Show()
@@ -1188,12 +1210,8 @@ class JungleWalker(wx.Frame):
         return s
 
 def StartJW():
-    import os
-
     jw = JungleWalker()
-    
     jw.Show()
-    
     app.MainLoop()
 
 if __name__ == '__main__':
