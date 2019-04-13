@@ -39,8 +39,8 @@ def _quantile(dataset, q):
 	raise ValueError("Quantile must be between 0.0 and 1.0!")
     if len(dataset) == 0:
 	return 0
-    l = list(dataset)
-    l.sort()
+    dataset = list(dataset)
+    dataset.sort()
     idx = ((len(dataset) - 1) * q)
 
     if math.floor(idx) != idx:
